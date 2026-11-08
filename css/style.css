@@ -128,6 +128,25 @@ body {
 .unit-chip.selected { background: var(--mint-soft); border-color: var(--mint); color: var(--mint-deep); }
 .unit-chip .u-emoji { font-size: 20px; }
 
+/* 年级选择 */
+.grade-chip { flex-direction: column; gap: 2px; padding: 11px 8px; }
+.grade-chip small { font-size: 11px; font-weight: 600; color: var(--ink-3); }
+.grade-chip.selected small { color: var(--mint-deep); }
+.grade-settings-row { align-items: flex-start; flex-direction: column; gap: 8px; }
+.grade-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.grade-check {
+  border: 2px solid #e8f1f4; background: #fff; border-radius: 999px; padding: 8px 15px;
+  cursor: pointer; font-family: var(--ui-font); font-size: 14px; font-weight: 700;
+  color: var(--ink-2); transition: all .16s ease;
+}
+.grade-check:hover { transform: translateY(-2px); }
+.grade-check.on { background: var(--mint-soft); border-color: var(--mint); color: var(--mint-deep); }
+.grade-check.quick { border-style: dashed; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.grade-tag {
+  display: inline-block; margin: 2px 0 4px; padding: 3px 12px; border-radius: 999px;
+  background: #eef7fa; color: var(--ink-3); font-size: 12px; font-weight: 700;
+}
+
 .home-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 .tips { text-align: center; color: var(--ink-3); font-size: 13px; line-height: 1.8; }
 

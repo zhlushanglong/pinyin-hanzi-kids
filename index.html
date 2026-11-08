@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#22b8a6">
-<meta name="description" content="给一年级小朋友的拼音汉字学习小程序：看汉字、听读音、拼声母韵母，答对有掌声。纯前端、可离线使用。">
-<title>拼音汉字乐园 · 一年级拼音拼读练习</title>
+<meta name="description" content="小学 1~6 年级拼音与汉字学习小程序：看汉字、听读音、拼声母韵母，答对有掌声；可在设置里勾选想学的年级。纯前端、可离线使用。">
+<title>拼音汉字乐园 · 1~6 年级拼音识字练习</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🌈%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -37,7 +37,7 @@
     <div class="hero">
       <span class="mascot" aria-hidden="true">🐣</span>
       <h1>拼音汉字乐园</h1>
-      <p class="sub">看汉字 · 听读音 · 拼拼音 · 得掌声，一起快乐识字吧！</p>
+      <p class="sub">1~6 年级常用字 · 看汉字、听读音、拼拼音、得掌声，一起快乐识字吧！</p>
     </div>
 
     <div class="stat-row">
@@ -62,8 +62,8 @@
       </div>
     </div>
 
-    <p class="section-title">② 选一组汉字 <span class="hint">共 49 个一年级常用字</span></p>
-    <div class="unit-grid" id="unitGrid"></div>
+    <p class="section-title">② 选想学的年级 <span class="hint" id="scopeHint">可多选</span></p>
+    <div class="unit-grid" id="gradeGrid"></div>
 
     <div class="home-actions">
       <button id="btnStart" class="btn btn-primary btn-lg">开始学习 🚀</button>
@@ -72,6 +72,10 @@
     </div>
 
     <section class="card settings hidden" id="settingsPanel">
+      <div class="settings-row grade-settings-row">
+        <label>📚 想学的年级 <span class="desc">可勾选多个年级，出题只从这些字里选</span></label>
+        <div class="grade-checks" id="gradeChecks"></div>
+      </div>
       <div class="settings-row">
         <label>🔊 出题后自动朗读 <span class="desc">读「路，道路」这样又读字又读词</span></label>
         <button class="switch on" id="swAutoSpeak" role="switch" aria-label="自动朗读"></button>

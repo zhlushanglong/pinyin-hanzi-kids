@@ -55,7 +55,7 @@ const SKIP = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db']);
 function collect(dir, prefix) {
   const out = [];
   for (const name of fs.readdirSync(dir)) {
-    if (SKIP.has(name) || name.startsWith('_smoke') || name.startsWith('_t_')) continue;
+    if (SKIP.has(name) || name.startsWith('_')) continue;
     const full = path.join(dir, name);
     const rel = prefix ? prefix + '/' + name : name;
     if (fs.statSync(full).isDirectory()) out.push(...collect(full, rel));

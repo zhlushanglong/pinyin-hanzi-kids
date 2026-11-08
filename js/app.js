@@ -18,10 +18,21 @@
     records: {},      // { '路': {try: 3, ok: 2} }
     wrongList: [],    // 需要复习的汉字
     settings: {
-      mode: 'spell', unit: 'all', difficulty: 'easy',
+      mode: 'spell', difficulty: 'easy', grades: [1],
       autoSpeak: true, sound: true, rate: 0.85, round: 10
     }
   };
+
+  var VALID_GRADES = [1, 2, 3, 4, 5, 6];
+  function normalizeGrades(v) {
+    if (!Array.isArray(v)) return [1];
+    var out = [];
+    v.forEach(function (g) {
+      g = Number(g);
+      if (VALID_GRADES.indexOf(g) !== -1 && out.indexOf(g) === -1) out.push(g);
+    });
+    return out.length ? out.sort(function (a, b) { return a - b; }) : [1];
+  }
 
   function loadState() {
     try {
@@ -29,6 +40,7 @@
       if (!raw) return JSON.parse(JSON.stringify(defaults));
       var s = JSON.parse(raw);
       s.settings = Object.assign({}, defaults.settings, s.settings || {});
+      s.settings.grades = normalizeGrades(s.settings.grades);
       s.records = s.records || {};
       s.wrongList = s.wrongList || [];
       s.stars = s.stars || 0;
@@ -74,13 +86,33 @@
     setTimeout(function () { if (box.parentNode) box.parentNode.removeChild(box); }, 3400);
   }
 
-  /* ---------------- 首页 ---------------- */
-  function renderUnits() {
-    var html = '<button type="button" class="unit-chip' + (state.settings.unit === 'all' ? ' selected' : '') + '" data-unit="all"><span class="u-emoji">🌈</span> 全部汉字</button>';
-    D.UNITS.forEach(function (u) {
-      html += '<button type="button" class="unit-chip' + (state.settings.unit === u.id ? ' selected' : '') + '" data-unit="' + u.id + '"><span class="u-emoji">' + u.emoji + '</span> ' + u.name + '</button>';
+  /* ---------------- 首页：年级选择 ---------------- */
+  function renderGrades() {
+    var html = '';
+    D.GRADES.forEach(function (g) {
+      var on = state.settings.grades.indexOf(g.n) !== -1;
+      html += '<button type="button" class="unit-chip grade-chip' + (on ? ' selected' : '') + '" data-grade="' + g.n + '" aria-pressed="' + on + '">'
+        + '<span class="u-emoji">' + g.emoji + '</span> ' + esc(g.name)
+        + '<small>' + g.count + ' 字</small></button>';
     });
-    $('unitGrid').innerHTML = html;
+    $('gradeGrid').innerHTML = html;
+    var chosen = state.settings.grades.map(function (n) {
+      return D.GRADES[n - 1] ? D.GRADES[n - 1].name : (n + '年级');
+    }).join('、');
+    $('scopeHint').textContent = '已选 ' + D.wordsForGrades(state.settings.grades).length
+      + ' 字（' + chosen + '）· 全库 ' + D.ALL_WORDS.length + ' 字';
+  }
+
+  function renderGradeChecks() {
+    var html = '';
+    D.GRADES.forEach(function (g) {
+      var on = state.settings.grades.indexOf(g.n) !== -1;
+      html += '<button type="button" class="grade-check' + (on ? ' on' : '') + '" data-grade="' + g.n + '" aria-pressed="' + on + '">'
+        + (on ? '✓ ' : '') + esc(g.name) + '</button>';
+    });
+    html += '<button type="button" class="grade-check quick" data-action="all">全选 6 个年级</button>'
+      + '<button type="button" class="grade-check quick" data-action="g1">只学一年级</button>';
+    $('gradeChecks').innerHTML = html;
   }
 
   function renderStats() {
@@ -107,12 +139,14 @@
       b.classList.toggle('selected', b.dataset.mode === state.settings.mode);
     });
     S.setEnabled(state.settings.sound);
+    renderGrades();
+    renderGradeChecks();
   }
 
   /* ---------------- 出题 ---------------- */
   function wordsInScope() {
-    if (state.settings.unit === 'all') return D.ALL_WORDS.slice();
-    return D.ALL_WORDS.filter(function (w) { return w.unit === state.settings.unit; });
+    var pool = D.wordsForGrades(state.settings.grades);
+    return pool.length ? pool : D.ALL_WORDS.slice();
   }
 
   function buildQueue() {
@@ -219,8 +253,9 @@
         + '<div class="hanzi-info">'
         + '<div class="word-emoji">' + w.e + '</div>'
         + '<div class="word-main">' + esc(w.w) + '</div>'
+        + '<div class="grade-tag">📚 ' + esc(w.unitName || (w.g + '年级')) + '</div>'
         + '<div class="word-pinyin" id="answerPinyin">拼一拼，读音是？</div>'
-        + '<div class="word-sentence">' + esc(w.s) + '</div>'
+        + (w.s ? '<div class="word-sentence">' + esc(w.s) + '</div>' : '')
         + (w.tip ? '<div class="tip-line">💡 ' + esc(w.tip) + '</div>' : '')
         + '</div></div>';
     } else if (mode === 'listen') {
@@ -233,6 +268,7 @@
         + '<div class="tianzi">' + TIANZI_SVG + '<div class="zi">' + esc(w.c) + '</div></div>'
         + '<div class="hanzi-info">'
         + '<div class="word-emoji">' + w.e + '</div>'
+        + '<div class="grade-tag">📚 ' + esc(w.unitName || (w.g + '年级')) + '</div>'
         + '<div class="word-pinyin" style="font-size:34px">' + esc(w.p) + '</div>'
         + '<div class="word-sentence">这个字能组成哪个词呢？<br>选对了就有掌声哦 👏</div>'
         + '</div></div>';
@@ -277,7 +313,7 @@
         html += '</div></div>';
       }
     } else if (mode === 'listen') {
-      var others = D.ALL_WORDS.filter(function (x) { return x.c !== w.c; });
+      var others = wordsInScope().filter(function (x) { return x.c !== w.c; });
       var similar = others.filter(function (x) { return x.f === w.f || x.i === w.i; });
       var picked = D.pick(similar, 2);
       picked = picked.concat(D.pick(others.filter(function (x) { return picked.indexOf(x) === -1; }), 3 - picked.length));
@@ -287,7 +323,7 @@
       html += '</div></div>';
     } else {
       // 干扰词都是题库里的真词，但不能含有当前汉字（否则也能组成词，会造成误判）
-      var pool = D.ALL_WORDS.filter(function (x) {
+      var pool = wordsInScope().filter(function (x) {
         return x.w !== w.w && x.w.indexOf(w.c) === -1;
       });
       var uniqueWords = [];
@@ -482,15 +518,34 @@
     $('btnBack').classList.add('hidden');
     $('modalRoot').innerHTML = '';
     renderStats();
-    renderUnits();
+    syncSettingsUI();
   }
 
   /* ---------------- 事件绑定 ---------------- */
-  $('unitGrid').addEventListener('click', function (e) {
-    var b = e.target.closest('.unit-chip');
+  function applyGrades(list) {
+    state.settings.grades = normalizeGrades(list);
+    saveState(); syncSettingsUI(); S.tap();
+  }
+  function toggleGrade(n) {
+    var i = state.settings.grades.indexOf(n);
+    if (i !== -1) {
+      if (state.settings.grades.length === 1) { toast('至少要留一个年级哦 🙂'); return; }
+      state.settings.grades.splice(i, 1);
+    } else {
+      state.settings.grades.push(n);
+    }
+    applyGrades(state.settings.grades);
+  }
+  $('gradeGrid').addEventListener('click', function (e) {
+    var b = e.target.closest('.grade-chip');
+    if (b) toggleGrade(Number(b.dataset.grade));
+  });
+  $('gradeChecks').addEventListener('click', function (e) {
+    var b = e.target.closest('.grade-check');
     if (!b) return;
-    state.settings.unit = b.dataset.unit;
-    saveState(); renderUnits(); S.tap();
+    if (b.dataset.action === 'all') applyGrades([1, 2, 3, 4, 5, 6]);
+    else if (b.dataset.action === 'g1') applyGrades([1]);
+    else toggleGrade(Number(b.dataset.grade));
   });
   $('modeGrid').addEventListener('click', function (e) {
     var b = e.target.closest('.mode-card');
@@ -583,7 +638,6 @@
   });
 
   /* ---------------- 启动 ---------------- */
-  renderUnits();
   renderStats();
   syncSettingsUI();
 })();
