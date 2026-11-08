@@ -19,11 +19,17 @@
     wrongList: [],    // 需要复习的汉字
     settings: {
       mode: 'spell', difficulty: 'easy', grades: [1],
-      autoSpeak: true, sound: true, rate: 0.85, round: 10
+      autoSpeak: true, sound: true, rate: 0.85, round: 10,
+      eyeCare: true, studyMinutes: 15
     }
   };
 
   var VALID_GRADES = [1, 2, 3, 4, 5, 6];
+  var STUDY_OPTIONS = [10, 15, 20, 30];
+  function normalizeStudyMinutes(v) {
+    v = Number(v);
+    return STUDY_OPTIONS.indexOf(v) !== -1 ? v : 15;
+  }
   function normalizeGrades(v) {
     if (!Array.isArray(v)) return [1];
     var out = [];
@@ -41,6 +47,8 @@
       var s = JSON.parse(raw);
       s.settings = Object.assign({}, defaults.settings, s.settings || {});
       s.settings.grades = normalizeGrades(s.settings.grades);
+      s.settings.studyMinutes = normalizeStudyMinutes(s.settings.studyMinutes);
+      s.settings.eyeCare = s.settings.eyeCare !== false;
       s.records = s.records || {};
       s.wrongList = s.wrongList || [];
       s.stars = s.stars || 0;
@@ -58,7 +66,7 @@
     queue: [], index: 0, correct: 0, current: null,
     selections: { initial: null, final: null },
     answered: false, locked: false, reviewOnly: false,
-    autoTimer: null, retryTimer: null
+    autoTimer: null, retryTimer: null, speakTimer: null
   };
 
   /* ---------------- 通用小工具 ---------------- */
@@ -84,6 +92,247 @@
     }
     document.body.appendChild(box);
     setTimeout(function () { if (box.parentNode) box.parentNode.removeChild(box); }, 3400);
+  }
+
+  /* ============================================================
+   * 护眼休息：学习满设定分钟 → 强制锁定 5 分钟
+   * - 只累计「练习页可见」的时间，回首页切后台不计时
+   * - 累计时长与休息截止时间戳存在独立的 localStorage，刷新、
+   *   重开标签页、清空学习记录都不能跳过休息
+   * - 休息倒计时同时按墙钟和单调递减双重校验，改系统时间不会
+   *   让倒计时瞬间跳完
+   * ============================================================ */
+  var EYE_KEY = 'pyhz_eyecare_v1';
+  var REST_MS = 5 * 60 * 1000;
+  var RING_LEN = 527.79;               // 2πr, r = 84
+  var REST_TIPS = [
+    '👀 看看窗外远处的绿树',
+    '🙆 站起来伸个大懒腰',
+    '💧 喝几口水，润润嗓子',
+    '👐 搓热手心，轻轻敷敷眼睛',
+    '🚶 在屋里慢慢走一走'
+  ];
+
+  function todayKey() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function freshEye() {
+    return { day: todayKey(), ms: 0, lockUntil: 0, restLeft: 0, restCount: 0, lastNow: Date.now() };
+  }
+  function loadEye() {
+    var blank = freshEye();
+    try {
+      var raw = localStorage.getItem(EYE_KEY);
+      if (!raw) return blank;
+      var e = JSON.parse(raw) || {};
+      var out = {
+        day: typeof e.day === 'string' ? e.day : blank.day,
+        ms: Math.max(0, Number(e.ms) || 0),
+        lockUntil: Math.max(0, Number(e.lockUntil) || 0),
+        restLeft: typeof e.restLeft === 'number' ? Math.max(0, e.restLeft) : (e.lockUntil ? REST_MS : 0),
+        restCount: Math.max(0, Number(e.restCount) || 0),
+        lastNow: Number(e.lastNow) || blank.lastNow
+      };
+      // 新的一天：学习时长与休息状态重新开始
+      return out.day === todayKey() ? out : blank;
+    } catch (err) { return blank; }
+  }
+  function saveEye() {
+    try { localStorage.setItem(EYE_KEY, JSON.stringify(eye)); } catch (e) {}
+  }
+  var eye = loadEye();
+  var eyeLastTick = Date.now();
+
+  function isResting() { return eye.lockUntil > 0; }
+  function parentGateOpen() { return !$('parentGate').classList.contains('hidden'); }
+  function fmtClock(ms) {
+    var s = Math.ceil(Math.max(0, ms) / 1000);
+    return ('0' + Math.floor(s / 60)).slice(-2) + ':' + ('0' + (s % 60)).slice(-2);
+  }
+  function fmtLeft(ms) {
+    var s = Math.ceil(Math.max(0, ms) / 1000);
+    var m = Math.floor(s / 60);
+    return m > 0 ? m + ' 分 ' + (s % 60) + ' 秒' : (s % 60) + ' 秒';
+  }
+
+  function renderEyeUI() {
+    var strip = $('eyeStrip');
+    var on = !!state.settings.eyeCare;
+    var limit = Number(state.settings.studyMinutes) * 60000;
+    strip.classList.toggle('off', !on);
+    strip.classList.toggle('resting', isResting());
+    $('eyeBadge').textContent = '今日休息 ' + eye.restCount + ' 次';
+
+    if (isResting()) {
+      $('eyeStatus').textContent = '😴 护眼休息中';
+      $('eyeCountdown').textContent = '还有 ' + fmtLeft(eye.restLeft) + ' 可以继续学习';
+      $('eyeFill').style.width = Math.min(100, eye.restLeft / REST_MS * 100) + '%';
+    } else if (!on) {
+      $('eyeStatus').textContent = '护眼休息已关闭（家长可开启）';
+      $('eyeCountdown').textContent = '';
+      $('eyeFill').style.width = '0%';
+    } else {
+      var used = Math.min(limit, eye.ms);
+      $('eyeStatus').textContent = '今天已认真学 ' + Math.floor(used / 60000) + ' 分 '
+        + Math.floor(used % 60000 / 1000) + ' 秒';
+      $('eyeCountdown').textContent = '距离休息还有 ' + fmtLeft(limit - used);
+      $('eyeFill').style.width = (used / limit * 100) + '%';
+    }
+  }
+
+  function renderRestClock() {
+    var left = eye.restLeft;
+    $('restTime').textContent = fmtClock(left);
+    var ratio = Math.max(0, Math.min(1, left / REST_MS));
+    $('restRing').style.strokeDashoffset = (RING_LEN * (1 - ratio)).toFixed(2);
+    var passed = Math.min(REST_TIPS.length, Math.floor((REST_MS - left) / 60000));
+    $('restTip').textContent = REST_TIPS[Math.min(REST_TIPS.length - 1, passed)];
+    var dots = '';
+    for (var i = 0; i < 5; i++) dots += '<i class="' + (i < passed ? 'on' : '') + '"></i>';
+    $('restDots').innerHTML = dots;
+  }
+
+  function showRestOverlay() {
+    $('restStudyMin').textContent = state.settings.studyMinutes;
+    $('restOverlay').classList.remove('hidden');
+    document.body.classList.add('rest-lock');
+    renderRestClock();
+  }
+  function hideRestOverlay() {
+    $('restOverlay').classList.add('hidden');
+    document.body.classList.remove('rest-lock');
+  }
+  function stopPracticeTimers() {
+    clearTimeout(session.autoTimer);
+    clearTimeout(session.retryTimer);
+    clearTimeout(session.speakTimer);
+    S.stopSpeak();
+  }
+
+  function startRest() {
+    var now = Date.now();
+    eye.lockUntil = now + REST_MS;
+    eye.restLeft = REST_MS;
+    eye.ms = 0;                       // 休息结束后重新累计
+    eye.restCount++;
+    eye.lastNow = now;
+    eyeLastTick = now;
+    saveEye();
+    stopPracticeTimers();
+    $('overlay').classList.add('hidden');
+    $('modalRoot').innerHTML = '';
+    closeParentGate();
+    showRestOverlay();
+    renderEyeUI();
+    S.tap();
+  }
+
+  function finishRest(silent) {
+    var now = Date.now();
+    eye.lockUntil = 0;
+    eye.restLeft = 0;
+    eye.ms = 0;
+    eye.lastNow = now;
+    eyeLastTick = now;
+    saveEye();
+    hideRestOverlay();
+    renderEyeUI();
+    if (!silent) {
+      // 休息前正在做题：重新呈现当前这一题，不推进进度
+      if (!$('practiceView').classList.contains('hidden') && session.current) nextQuestion();
+      toast('休息好啦，继续闯关吧 🌈');
+    }
+  }
+
+  function initEye() {
+    var now = Date.now();
+    if (eye.lockUntil) {
+      // 关掉页面期间也算在休息，把离线时间从剩余秒数里扣掉
+      var away = Math.max(0, now - eye.lastNow);
+      eye.restLeft = Math.max(0, eye.restLeft - away);
+      if (eye.restLeft <= 0) {
+        eye.lockUntil = 0; eye.restLeft = 0; eye.ms = 0;
+      } else {
+        showRestOverlay();
+      }
+    }
+    eye.lastNow = now;
+    eyeLastTick = now;
+    saveEye();
+    renderEyeUI();
+  }
+
+  function eyeTick() {
+    // 跨过零点：新的一天重新累计
+    if (eye.day !== todayKey()) {
+      var wasResting = isResting();
+      eye = freshEye();
+      eyeLastTick = Date.now();
+      saveEye();
+      if (wasResting) hideRestOverlay();
+      renderEyeUI();
+      return;
+    }
+
+    var now = Date.now();
+    // 系统时间被往回拨：把截止时间一起后移，保持剩余休息时长不变
+    var rolledBack = now < eye.lastNow - 5000;
+    if (rolledBack && eye.lockUntil) eye.lockUntil += eye.lastNow - now;
+    eye.lastNow = now;
+    var raw = Math.max(0, now - eyeLastTick);
+    eyeLastTick = now;
+    var studyDelta = raw > 3000 ? 0 : raw;      // 后台/休眠的空档不算学习
+    // 休息按真实经过时间递减，单次最多 60 秒；时间回拨时按 1 秒兜底，避免倒计时冻住
+    var restDelta = rolledBack ? 1000 : Math.min(raw, 60000);
+
+    if (isResting()) {
+      eye.restLeft = Math.max(0, eye.restLeft - restDelta);
+      if (eye.restLeft <= 0) finishRest(false);
+      else { renderRestClock(); renderEyeUI(); saveEye(); }
+      return;
+    }
+    if (!state.settings.eyeCare) { renderEyeUI(); saveEye(); return; }
+
+    var practicing = !$('practiceView').classList.contains('hidden');
+    var visible = !document.hidden;
+    var reportOpen = $('modalRoot').innerHTML.trim() !== '';
+    if (practicing && visible && !reportOpen) {
+      eye.ms += studyDelta;
+      if (eye.ms >= Number(state.settings.studyMinutes) * 60000) { startRest(); return; }
+      saveEye();
+    }
+    renderEyeUI();
+  }
+
+  /* 家长验证：避免小朋友自己关掉护眼模式 */
+  var parentCheck = null, parentAction = null;
+  function closeParentGate() {
+    $('parentGate').classList.add('hidden');
+    parentCheck = null; parentAction = null;
+  }
+  function askParent(action, force) {
+    if (isResting() && !force) return;
+    var a = 6 + Math.floor(Math.random() * 4);
+    var b = 7 + Math.floor(Math.random() * 6);
+    $('parentQuestion').textContent = a + ' × ' + b + ' = ?';
+    $('parentAnswer').value = '';
+    $('parentError').classList.add('hidden');
+    parentCheck = function (v) { return v.trim() !== '' && Number(v) === a * b; };
+    parentAction = action;
+    $('parentGate').classList.remove('hidden');
+    setTimeout(function () { $('parentAnswer').focus(); }, 30);
+  }
+  function submitParent() {
+    if (parentCheck && parentCheck($('parentAnswer').value)) {
+      var act = parentAction;
+      closeParentGate();
+      if (act) act();
+      toast('已由家长确认 ✅');
+    } else {
+      $('parentError').classList.remove('hidden');
+      $('parentAnswer').select();
+    }
   }
 
   /* ---------------- 首页：年级选择 ---------------- */
@@ -138,9 +387,14 @@
     Array.prototype.forEach.call($('modeGrid').children, function (b) {
       b.classList.toggle('selected', b.dataset.mode === state.settings.mode);
     });
+    $('swEyeCare').classList.toggle('on', !!state.settings.eyeCare);
+    Array.prototype.forEach.call($('studyMinutesSwitch').children, function (b) {
+      b.classList.toggle('active', Number(b.dataset.n) === Number(state.settings.studyMinutes));
+    });
     S.setEnabled(state.settings.sound);
     renderGrades();
     renderGradeChecks();
+    renderEyeUI();
   }
 
   /* ---------------- 出题 ---------------- */
@@ -171,17 +425,18 @@
   }
 
   function startSession(reviewOnly) {
-    clearTimeout(session.autoTimer);
-    clearTimeout(session.retryTimer);
+    if (isResting()) return;
+    stopPracticeTimers();
     session = {
       queue: [], index: 0, correct: 0, current: null,
       selections: { initial: null, final: null },
       answered: false, locked: false, reviewOnly: !!reviewOnly,
-      autoTimer: null, retryTimer: null
+      autoTimer: null, retryTimer: null, speakTimer: null
     };
     buildQueue();
     $('homeView').classList.add('hidden');
     $('practiceView').classList.remove('hidden');
+    document.body.classList.add('view-practice');
     $('btnBack').classList.remove('hidden');
     S.unlock();                       // 首次点击解锁浏览器音频
     if (reviewOnly && state.wrongList.length === 0) toast('太棒啦，目前没有错字要复习 🎉');
@@ -191,6 +446,7 @@
   function nextQuestion() {
     clearTimeout(session.autoTimer);
     clearTimeout(session.retryTimer);
+    clearTimeout(session.speakTimer);
     if (session.index >= session.queue.length) { showReport(); return; }
 
     session.answered = false;
@@ -339,7 +595,7 @@
 
   /* ---------------- 作答 ---------------- */
   function onChoiceClick(el) {
-    if (session.locked || session.answered) return;
+    if (isResting() || session.locked || session.answered) return;
     var kind = el.dataset.kind;
     var value = el.dataset.value;
     S.tap();
@@ -430,7 +686,7 @@
     $('progressFill').style.width = ((session.index + 1) / session.queue.length * 100) + '%';
 
     // 掌声稍后再读一遍，让孩子听清正确读音
-    setTimeout(function () { speakText(w.c + '，' + w.w); }, 950);
+    session.speakTimer = setTimeout(function () { speakText(w.c + '，' + w.w); }, 950);
     session.autoTimer = setTimeout(function () { if (session.answered) goNext(); }, 2600);
   }
 
@@ -510,11 +766,10 @@
   }
 
   function goHome() {
-    clearTimeout(session.autoTimer);
-    clearTimeout(session.retryTimer);
-    S.stopSpeak();
+    stopPracticeTimers();
     $('practiceView').classList.add('hidden');
     $('homeView').classList.remove('hidden');
+    document.body.classList.remove('view-practice');
     $('btnBack').classList.add('hidden');
     $('modalRoot').innerHTML = '';
     renderStats();
@@ -583,7 +838,10 @@
   });
 
   $('btnSettings').addEventListener('click', function () {
-    $('settingsPanel').classList.toggle('hidden');
+    var panel = $('settingsPanel');
+    panel.classList.toggle('hidden');
+    // 手机上设置面板在页面下方，展开后直接滚过去，避免孩子找不到
+    if (!panel.classList.contains('hidden')) panel.scrollIntoView({ block: 'start' });
     S.tap();
   });
   $('swAutoSpeak').addEventListener('click', function () {
@@ -619,7 +877,58 @@
     toast('记录已清空，重新出发 🌱');
   });
 
+  /* ---------------- 护眼休息：事件 ---------------- */
+  $('swEyeCare').addEventListener('click', function () {
+    askParent(function () {
+      state.settings.eyeCare = !state.settings.eyeCare;
+      saveState(); syncSettingsUI(); S.tap();
+    });
+  });
+  $('studyMinutesSwitch').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    var n = normalizeStudyMinutes(b.dataset.n);
+    if (n === Number(state.settings.studyMinutes)) return;
+    askParent(function () {
+      state.settings.studyMinutes = n;
+      saveState(); syncSettingsUI(); S.tap();
+    });
+  });
+  // 家长紧急出口：万一时间异常导致倒计时不走，可由家长验证后结束休息
+  $('btnRestParent').addEventListener('click', function () {
+    askParent(function () { finishRest(false); }, true);
+  });
+  $('parentCancel').addEventListener('click', closeParentGate);
+  $('parentOk').addEventListener('click', submitParent);
+  $('parentAnswer').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); submitParent(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeParentGate(); }
+  });
+
+  // 休息期间用捕获阶段拦住底层所有点击，改答案、开设置、点开始都不行
+  document.addEventListener('click', function (e) {
+    if (!isResting() || $('restOverlay').contains(e.target) || $('parentGate').contains(e.target)) return;
+    e.preventDefault(); e.stopPropagation();
+  }, true);
+
+  // 多标签页同步：任一窗口进入 / 结束休息，其他窗口跟着走
+  window.addEventListener('storage', function (e) {
+    if (e.key !== EYE_KEY || !e.newValue) return;
+    try {
+      var remoteResting = Number(JSON.parse(e.newValue).lockUntil) > 0;
+      if (remoteResting === isResting()) return;   // 状态未变，避免互相覆盖学习时长
+      eye = loadEye();
+      eyeLastTick = Date.now();
+      if (remoteResting) { stopPracticeTimers(); showRestOverlay(); }
+      else hideRestOverlay();
+      renderEyeUI();
+      if (isResting()) renderRestClock();
+    } catch (err) {}
+  });
+
   document.addEventListener('keydown', function (e) {
+    if (parentGateOpen() && e.key === 'Escape') { closeParentGate(); return; }
+    if (isResting() || parentGateOpen()) return;
     if ($('practiceView').classList.contains('hidden')) return;
     if (e.key >= '1' && e.key <= '9') {
       var list = $('choices').querySelectorAll('.choice');
@@ -632,12 +941,18 @@
     }
   });
 
-  // 页面重新可见时恢复音频上下文
+  // 页面重新可见时恢复音频上下文；切到后台的空档不计入学习时间
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) S.unlock();
+    eyeLastTick = Date.now();
+    if (!document.hidden) {
+      S.unlock();
+      if (isResting()) renderRestClock();
+    }
   });
 
   /* ---------------- 启动 ---------------- */
+  initEye();
   renderStats();
   syncSettingsUI();
+  setInterval(eyeTick, 1000);
 })();

@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#22b8a6">
 <meta name="description" content="小学 1~6 年级拼音与汉字学习小程序：看汉字、听读音、拼声母韵母，答对有掌声；可在设置里勾选想学的年级。纯前端、可离线使用。">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="拼音乐园">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
 <title>拼音汉字乐园 · 1~6 年级拼音识字练习</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🌈%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -31,6 +37,19 @@
       <button id="btnSound" class="round-btn ghost" title="声音开关" aria-label="声音开关">🔊</button>
     </div>
   </header>
+
+  <!-- 护眼进度条：首页和练习页都能看到 -->
+  <div class="eye-strip" id="eyeStrip">
+    <span class="eye-ic" aria-hidden="true">👀</span>
+    <div class="eye-strip-main">
+      <div class="eye-strip-top">
+        <span id="eyeStatus">护眼模式已开启</span>
+        <span id="eyeCountdown">距离休息还有 15 分钟</span>
+      </div>
+      <div class="eye-track"><div class="eye-fill" id="eyeFill"></div></div>
+    </div>
+    <span class="eye-badge" id="eyeBadge">今日休息 0 次</span>
+  </div>
 
   <!-- ======================= 首页 ======================= -->
   <main id="homeView">
@@ -66,15 +85,31 @@
     <div class="unit-grid" id="gradeGrid"></div>
 
     <div class="home-actions">
-      <button id="btnStart" class="btn btn-primary btn-lg">开始学习 🚀</button>
-      <button id="btnSettings" class="btn btn-soft">⚙️ 设置</button>
-      <button id="btnReview" class="btn btn-soft">🔁 只练错字</button>
+      <div class="home-cta"><button id="btnStart" class="btn btn-primary btn-lg">开始学习 🚀</button></div>
+      <div class="home-secondary">
+        <button id="btnSettings" class="btn btn-soft">⚙️ 设置</button>
+        <button id="btnReview" class="btn btn-soft">🔁 只练错字</button>
+      </div>
     </div>
 
     <section class="card settings hidden" id="settingsPanel">
       <div class="settings-row grade-settings-row">
         <label>📚 想学的年级 <span class="desc">可勾选多个年级，出题只从这些字里选</span></label>
         <div class="grade-checks" id="gradeChecks"></div>
+      </div>
+      <div class="settings-row eye-settings-row">
+        <label>👀 护眼休息 <span class="desc">学习满设定时长后自动锁定，休息 5 分钟才能继续；修改设置需家长验证</span></label>
+        <div class="eye-controls">
+          <button class="switch on" id="swEyeCare" role="switch" aria-label="护眼休息开关"></button>
+          <span class="eye-control-label">学习</span>
+          <div class="segmented blue" id="studyMinutesSwitch" role="group" aria-label="学习时长">
+            <button type="button" data-n="10">10 分</button>
+            <button type="button" data-n="15" class="active">15 分</button>
+            <button type="button" data-n="20">20 分</button>
+            <button type="button" data-n="30">30 分</button>
+          </div>
+          <span class="eye-control-label">→ 强制休息 <b>5 分钟</b></span>
+        </div>
       </div>
       <div class="settings-row">
         <label>🔊 出题后自动朗读 <span class="desc">读「路，道路」这样又读字又读词</span></label>
@@ -147,6 +182,42 @@
 
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
+
+<!-- ======================= 强制休息遮罩 ======================= -->
+<div class="rest-overlay hidden" id="restOverlay" role="dialog" aria-modal="true" aria-labelledby="restTitle">
+  <div class="rest-card">
+    <div class="rest-sun" aria-hidden="true">🌤️</div>
+    <h2 id="restTitle">让眼睛休息一下吧</h2>
+    <p class="rest-lead">已经认真学习了 <b id="restStudyMin">15</b> 分钟，<br>休息 <b>5 分钟</b> 就能继续闯关啦 🌈</p>
+    <div class="rest-clock">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <circle class="ring-bg" cx="100" cy="100" r="84"></circle>
+        <circle class="ring-fg" id="restRing" cx="100" cy="100" r="84"></circle>
+      </svg>
+      <div class="rest-time"><b id="restTime">05:00</b><small>休息倒计时</small></div>
+    </div>
+    <div class="rest-tip" id="restTip">👀 看看窗外远处的绿树</div>
+    <p class="rest-note">休息时不能答题哦～ 站起来动一动，让眼睛放松放松 🌿</p>
+    <div class="rest-dots" id="restDots"></div>
+    <button type="button" class="rest-parent-btn" id="btnRestParent">家长提前结束休息（需验证）🔒</button>
+  </div>
+</div>
+
+<!-- ======================= 家长验证 ======================= -->
+<div class="parent-gate hidden" id="parentGate" role="dialog" aria-modal="true" aria-labelledby="parentTitle">
+  <div class="parent-card">
+    <div class="parent-emoji" aria-hidden="true">🔒</div>
+    <h3 id="parentTitle">请家长确认</h3>
+    <p class="parent-desc">为了避免小朋友自己改掉护眼设置，<br>请家长回答下面的算术题：</p>
+    <div class="parent-question" id="parentQuestion">7 × 8 = ?</div>
+    <input type="number" id="parentAnswer" inputmode="numeric" placeholder="输入答案" autocomplete="off">
+    <p class="parent-error hidden" id="parentError">答案不太对，再算一次吧 🙂</p>
+    <div class="parent-actions">
+      <button class="btn btn-soft" id="parentCancel" type="button">取消</button>
+      <button class="btn btn-primary" id="parentOk" type="button">确定</button>
+    </div>
+  </div>
+</div>
 
 <script src="js/data.js"></script>
 <script src="js/audio.js"></script>
