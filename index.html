@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#22b8a6">
+<meta name="description" content="给一年级小朋友的拼音汉字学习小程序：看汉字、听读音、拼声母韵母，答对有掌声。纯前端、可离线使用。">
+<title>拼音汉字乐园 · 一年级拼音拼读练习</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🌈%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="bg-deco" aria-hidden="true">
+  <span class="d1">⭐</span><span class="d2">☁️</span><span class="d3">🌟</span>
+  <span class="d4">🎈</span><span class="d5">✨</span><span class="d6">🌼</span>
+</div>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <button id="btnBack" class="round-btn hidden" title="返回首页" aria-label="返回首页">↩</button>
+      <div class="brand"><span class="logo">🌈</span><span class="txt">拼音汉字乐园</span></div>
+    </div>
+    <div class="topbar-right">
+      <div class="segmented" id="difficultySwitch" role="group" aria-label="难度">
+        <button type="button" data-diff="easy" class="active">简单</button>
+        <button type="button" data-diff="hard">困难</button>
+      </div>
+      <button id="btnSound" class="round-btn ghost" title="声音开关" aria-label="声音开关">🔊</button>
+    </div>
+  </header>
+
+  <!-- ======================= 首页 ======================= -->
+  <main id="homeView">
+    <div class="hero">
+      <span class="mascot" aria-hidden="true">🐣</span>
+      <h1>拼音汉字乐园</h1>
+      <p class="sub">看汉字 · 听读音 · 拼拼音 · 得掌声，一起快乐识字吧！</p>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat"><span class="ic">⭐</span><div><b id="statStars">0</b><small>累计星星</small></div></div>
+      <div class="stat"><span class="ic">📖</span><div><b id="statMastered">0</b><small>已认识的字</small></div></div>
+      <div class="stat"><span class="ic">🔥</span><div><b id="statCombo">0</b><small>最高连对</small></div></div>
+    </div>
+
+    <p class="section-title">① 选一个玩法 <span class="hint">三种练习，换着玩不腻</span></p>
+    <div class="mode-grid" id="modeGrid">
+      <div class="mode-card selected" data-mode="spell" role="button" tabindex="0">
+        <span class="m-emoji">🧩</span>
+        <div><div class="m-name">拼一拼</div><div class="m-desc">听字音、找声母和韵母，拼出完整拼音</div></div>
+      </div>
+      <div class="mode-card" data-mode="listen" role="button" tabindex="0">
+        <span class="m-emoji">👂</span>
+        <div><div class="m-name">听音选字</div><div class="m-desc">认真听读音，从四个汉字里找出来</div></div>
+      </div>
+      <div class="mode-card" data-mode="word" role="button" tabindex="0">
+        <span class="m-emoji">🍎</span>
+        <div><div class="m-name">组词小达人</div><div class="m-desc">看汉字，选出它能组成的好词语</div></div>
+      </div>
+    </div>
+
+    <p class="section-title">② 选一组汉字 <span class="hint">共 49 个一年级常用字</span></p>
+    <div class="unit-grid" id="unitGrid"></div>
+
+    <div class="home-actions">
+      <button id="btnStart" class="btn btn-primary btn-lg">开始学习 🚀</button>
+      <button id="btnSettings" class="btn btn-soft">⚙️ 设置</button>
+      <button id="btnReview" class="btn btn-soft">🔁 只练错字</button>
+    </div>
+
+    <section class="card settings hidden" id="settingsPanel">
+      <div class="settings-row">
+        <label>🔊 出题后自动朗读 <span class="desc">读「路，道路」这样又读字又读词</span></label>
+        <button class="switch on" id="swAutoSpeak" role="switch" aria-label="自动朗读"></button>
+      </div>
+      <div class="settings-row">
+        <label>👏 音效与掌声 <span class="desc">答对时全班给你鼓掌</span></label>
+        <button class="switch on" id="swSound" role="switch" aria-label="音效"></button>
+      </div>
+      <div class="settings-row">
+        <label>🐢 朗读语速 <span class="desc" id="rateLabel">0.85 倍（慢一点更清楚）</span></label>
+        <input type="range" id="rateRange" min="0.6" max="1.2" step="0.05" value="0.85">
+      </div>
+      <div class="settings-row">
+        <label>🎯 每轮题数</label>
+        <div class="segmented blue" id="roundSwitch">
+          <button type="button" data-n="5">5 题</button>
+          <button type="button" data-n="10" class="active">10 题</button>
+          <button type="button" data-n="15">15 题</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <label>🧹 学习记录</label>
+        <button class="btn btn-soft" id="btnReset">清空并重来</button>
+      </div>
+    </section>
+
+    <p class="tips">
+      💡 全部声音由浏览器现场合成，<b>不用联网、不用下载音频</b>；朗读需要浏览器支持中文语音（Edge / Chrome / Safari 均可）。<br>
+      ⌨️ 电脑上还能用键盘：<b>1~9</b> 选答案、<b>空格</b> 重听、<b>回车</b> 下一题。
+    </p>
+  </main>
+
+  <!-- ======================= 练习页 ======================= -->
+  <main id="practiceView" class="hidden">
+    <div class="progress-wrap">
+      <span class="progress-label" id="progressLabel">第 1 / 10 题</span>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <span class="star-count" id="practiceStars">⭐ 0</span>
+    </div>
+
+    <section class="card stage" id="stage">
+      <div class="stage-head">
+        <span class="stage-tag" id="stageTag">🧩 拼一拼</span>
+        <div class="stage-tools">
+          <button class="btn btn-soft" id="btnSpeak">🔊 再听一遍</button>
+          <button class="btn btn-soft" id="btnSkip">跳过 ➡️</button>
+        </div>
+      </div>
+
+      <div id="questionArea"></div>
+      <div class="choices" id="choices"></div>
+      <div class="feedback neutral" id="feedback"></div>
+      <div class="stage-footer">
+        <button class="btn btn-yellow hidden" id="btnNext">下一题 ➡️</button>
+      </div>
+
+      <div class="overlay hidden" id="overlay">
+        <div class="cheer-card">
+          <span class="big-star">🌟</span>
+          <div class="cheer-text">答对啦，真棒！</div>
+          <div class="cheer-sub" id="cheerSub"></div>
+        </div>
+      </div>
+    </section>
+
+    <p class="tips" id="practiceTip">先点声母，再点韵母，拼出这个字的读音～ 答错也没关系，再听一次就好啦！</p>
+  </main>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script src="js/data.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
