@@ -1,12 +1,13 @@
 /* ============================================================
  * 拼音汉字乐园 · 主逻辑
- * 三种玩法：拼一拼 / 听音选字 / 组词小达人
+ * 五种玩法：拼一拼 / 听音选字 / 组词小达人 / 易混声母 / 整体认读
  * 学习记录保存在浏览器 localStorage，不上传任何数据
  * ============================================================ */
 (function () {
   'use strict';
 
   var D = window.PINYIN_DATA;
+  var L = window.PINYIN_LESSONS;
   var S = window.SoundKit;
   var $ = function (id) { return document.getElementById(id); };
   var STORE_KEY = 'pyhz_state_v1';
@@ -26,6 +27,7 @@
 
   var VALID_GRADES = [1, 2, 3, 4, 5, 6];
   var STUDY_OPTIONS = [10, 15, 20, 30];
+  var MODES = ['spell', 'listen', 'word', 'confuse', 'whole'];
   function normalizeStudyMinutes(v) {
     v = Number(v);
     return STUDY_OPTIONS.indexOf(v) !== -1 ? v : 15;
@@ -39,6 +41,7 @@
     });
     return out.length ? out.sort(function (a, b) { return a - b; }) : [1];
   }
+  function normalizeMode(v) { return MODES.indexOf(v) !== -1 ? v : 'spell'; }
 
   function loadState() {
     try {
@@ -48,6 +51,7 @@
       s.settings = Object.assign({}, defaults.settings, s.settings || {});
       s.settings.grades = normalizeGrades(s.settings.grades);
       s.settings.studyMinutes = normalizeStudyMinutes(s.settings.studyMinutes);
+      s.settings.mode = normalizeMode(s.settings.mode);
       s.settings.eyeCare = s.settings.eyeCare !== false;
       s.records = s.records || {};
       s.wrongList = s.wrongList || [];
@@ -63,7 +67,7 @@
   var state = loadState();
 
   var session = {
-    queue: [], index: 0, correct: 0, current: null,
+    queue: [], index: 0, correct: 0, current: null, answer: null,
     selections: { initial: null, final: null },
     answered: false, locked: false, reviewOnly: false,
     autoTimer: null, retryTimer: null, speakTimer: null
@@ -77,6 +81,14 @@
     toast._t = setTimeout(function () { root.innerHTML = ''; }, 2300);
   }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; }); }
+
+  /* 拼音用手写体显示前先做 Unicode 分解：ǎ → a + 符号，ǜ → u + 两点 + 符号。
+     基础字母因此全部落在 Basic Latin，手写字体里不会出现「同一个词
+     一半手写体、一半印刷体」的缺字回退。只用于显示，答案比较仍用原值。 */
+  function nf(s) {
+    try { return String(s).normalize('NFD'); } catch (e) { return String(s); }
+  }
+  function py(s) { return esc(nf(s)); }
 
   function confetti() {
     var box = document.createElement('div');
@@ -364,6 +376,19 @@
     $('gradeChecks').innerHTML = html;
   }
 
+  /* ---------------- 首页：16 个整体认读音节点读表 ---------------- */
+  function renderWholeTiles() {
+    var html = '';
+    L.WHOLE.forEach(function (item) {
+      var z = item.zi[0];
+      html += '<button type="button" class="whole-tile" data-say="' + esc(z.c + '，' + z.w) + '">'
+        + '<span class="wt-py">' + py(item.s) + '</span>'
+        + '<span class="wt-zi">' + item.e + ' ' + esc(z.c) + '</span>'
+        + '</button>';
+    });
+    $('wholeGrid').innerHTML = html;
+  }
+
   function renderStats() {
     var mastered = Object.keys(state.records).filter(function (k) { return state.records[k].ok > 0; }).length;
     $('statStars').textContent = state.stars;
@@ -403,8 +428,33 @@
     return pool.length ? pool : D.ALL_WORDS.slice();
   }
 
+  // 按「声母 + 去调韵母」判断是否为整体认读音节（字库里的 tip 是给
+  // 孩子看的中文提示，不适合拿来当判定依据）
+  var WHOLE_SET = Object.create(null);
+  L.WHOLE.forEach(function (x) { WHOLE_SET[x.s] = 1; });
+  function isWholeWord(w) {
+    return !!WHOLE_SET[w.i + D.stripTone(w.f)];
+  }
+
   function buildQueue() {
-    var pool = wordsInScope();
+    var mode = state.settings.mode;
+    var pool;
+    if (mode === 'whole') {
+      // 整体认读音节是拼音基础，不分年级
+      pool = L.wholeWords();
+    } else if (mode === 'confuse') {
+      // 只练 b p d t q，按所选年级过滤
+      pool = wordsInScope().filter(function (w) {
+        return L.CONFUSABLE.letters.indexOf(w.i) !== -1;
+      });
+    } else if (mode === 'spell') {
+      // 整体认读音节教学上不能拆成「声母 + 韵母」，交给专属玩法
+      pool = wordsInScope().filter(function (w) { return !isWholeWord(w); });
+    } else {
+      pool = wordsInScope();
+    }
+    if (!pool.length) pool = wordsInScope();
+    if (!pool.length) pool = D.ALL_WORDS.slice();
     if (session.reviewOnly) {
       var onlyWrong = pool.filter(function (w) { return state.wrongList.indexOf(w.c) !== -1; });
       if (onlyWrong.length) pool = onlyWrong;
@@ -428,7 +478,7 @@
     if (isResting()) return;
     stopPracticeTimers();
     session = {
-      queue: [], index: 0, correct: 0, current: null,
+      queue: [], index: 0, correct: 0, current: null, answer: null,
       selections: { initial: null, final: null },
       answered: false, locked: false, reviewOnly: !!reviewOnly,
       autoTimer: null, retryTimer: null, speakTimer: null
@@ -443,6 +493,25 @@
     nextQuestion();
   }
 
+  var STAGE_TAG = {
+    spell: '🧩 拼一拼', listen: '👂 听音选字', word: '🍎 组词小达人',
+    confuse: '🔤 易混声母', whole: '📖 整体认读'
+  };
+  var STAGE_TIP = {
+    spell: '先点声母，再点韵母，拼出这个字的读音～ 答错也没关系，再听一次就好啦！',
+    listen: '点大喇叭多听几遍，从四个汉字里找出你听到的那个字。',
+    word: '看看这个字，选出它能组成的好词语。',
+    confuse: 'b p d t q 长得像、读得也像：先听读音，再看口诀，找出正确的声母！',
+    whole: '整体认读音节不用拼，要整个记住；听一听，选出对应的音节。'
+  };
+  var STAGE_HELLO = {
+    spell: '听一听，然后选出声母和韵母吧 🎧',
+    listen: '仔细听，再选出对应的字 👂',
+    word: '想一想，这个字能组成哪个词？🤔',
+    confuse: '仔细听，再看口诀，选出声母吧 🔤',
+    whole: '整体认读音节不用拼，你记住了吗？📖'
+  };
+
   function nextQuestion() {
     clearTimeout(session.autoTimer);
     clearTimeout(session.retryTimer);
@@ -451,23 +520,20 @@
 
     session.answered = false;
     session.locked = false;
+    session.answer = null;
     session.selections = { initial: null, final: null };
     session.current = session.queue[session.index];
 
     var mode = state.settings.mode;
-    $('stageTag').textContent = mode === 'spell' ? '🧩 拼一拼' : mode === 'listen' ? '👂 听音选字' : '🍎 组词小达人';
-    $('practiceTip').textContent = mode === 'spell'
-      ? '先点声母，再点韵母，拼出这个字的读音～ 答错也没关系，再听一次就好啦！'
-      : mode === 'listen'
-        ? '点大喇叭多听几遍，从四个汉字里找出你听到的那个字。'
-        : '看看这个字，选出它能组成的好词语。';
+    $('stageTag').textContent = STAGE_TAG[mode] || STAGE_TAG.spell;
+    $('practiceTip').textContent = STAGE_TIP[mode] || STAGE_TIP.spell;
 
     renderQuestion();
     renderChoices();
     updateProgress();
 
     $('feedback').className = 'feedback neutral';
-    $('feedback').textContent = mode === 'spell' ? '听一听，然后选出声母和韵母吧 🎧' : mode === 'listen' ? '仔细听，再选出对应的字 👂' : '想一想，这个字能组成哪个词？🤔';
+    $('feedback').textContent = STAGE_HELLO[mode] || STAGE_HELLO.spell;
     $('btnNext').classList.add('hidden');
     $('overlay').classList.add('hidden');
 
@@ -495,6 +561,19 @@
     + '<line x1="128" y1="4" x2="4" y2="128" stroke="#f7dcdc" stroke-width="1.2" stroke-dasharray="5 7"/>'
     + '</svg>';
 
+  // 专项题面共用：田字格汉字 + 组词 + 被藏起来的拼音
+  function focusQuestionHTML(w, hiddenText, note) {
+    return '<div class="hanzi-row">'
+      + '<div class="tianzi">' + TIANZI_SVG + '<div class="zi">' + esc(w.c) + '</div></div>'
+      + '<div class="hanzi-info">'
+      + '<div class="word-emoji">' + w.e + '</div>'
+      + '<div class="word-main">' + esc(w.w) + '</div>'
+      + '<div class="grade-tag">📚 ' + esc(w.unitName || (w.g + '年级')) + '</div>'
+      + '<div class="word-pinyin" id="answerPinyin">' + esc(hiddenText) + '</div>'
+      + (note ? '<div class="tip-line">💡 ' + esc(note) + '</div>' : '')
+      + '</div></div>';
+  }
+
   function renderQuestion() {
     var w = session.current;
     var mode = state.settings.mode;
@@ -512,20 +591,27 @@
         + '<div class="grade-tag">📚 ' + esc(w.unitName || (w.g + '年级')) + '</div>'
         + '<div class="word-pinyin" id="answerPinyin">拼一拼，读音是？</div>'
         + (w.s ? '<div class="word-sentence">' + esc(w.s) + '</div>' : '')
-        + (w.tip ? '<div class="tip-line">💡 ' + esc(w.tip) + '</div>' : '')
         + '</div></div>';
     } else if (mode === 'listen') {
       html += '<div class="listen-box">'
         + '<button type="button" class="listen-btn" id="bigSpeak" aria-label="播放读音">🔊</button>'
         + '<div class="listen-tip">点喇叭听一听，选出你听到的字</div>'
         + '</div>';
+    } else if (mode === 'confuse') {
+      // 题面绝不能出现答案：口诀只讲「怎么分辨」，不指出本题的声母
+      html += '<div class="lesson-banner confuse">' + esc(L.CONFUSABLE.banner) + '</div>';
+      html += focusQuestionHTML(w, '？ 声母藏起来了', '');
+    } else if (mode === 'whole') {
+      // w.tip 里写着正确音节，答题时不能显示；答对/答错后再讲
+      html += '<div class="lesson-banner whole">📖 整体认读音节 <b>不用拼</b>，要整个记住哦</div>';
+      html += focusQuestionHTML(w, '？ 猜猜是哪个音节', '');
     } else {
       html += '<div class="hanzi-row" style="margin-top:26px">'
         + '<div class="tianzi">' + TIANZI_SVG + '<div class="zi">' + esc(w.c) + '</div></div>'
         + '<div class="hanzi-info">'
         + '<div class="word-emoji">' + w.e + '</div>'
         + '<div class="grade-tag">📚 ' + esc(w.unitName || (w.g + '年级')) + '</div>'
-        + '<div class="word-pinyin" style="font-size:34px">' + esc(w.p) + '</div>'
+        + '<div class="word-pinyin" style="font-size:34px">' + py(w.p) + '</div>'
         + '<div class="word-sentence">这个字能组成哪个词呢？<br>选对了就有掌声哦 👏</div>'
         + '</div></div>';
     }
@@ -539,13 +625,14 @@
     var label = kind === 'initial' ? '<span class="kind">声母</span>'
       : kind === 'final' ? '<span class="kind">韵母</span>' : '';
     return '<button type="button" class="choice ' + (extra || '') + '" data-kind="' + kind + '" data-value="' + esc(value) + '">'
-      + '<span>' + esc(value) + '</span>' + label + '</button>';
+      + '<span>' + py(value) + '</span>' + label + '</button>';
   }
 
   function renderChoices() {
     var w = session.current;
     var mode = state.settings.mode;
     var html = '';
+    session.answer = null;
 
     if (mode === 'spell') {
       var hard = state.settings.difficulty === 'hard';
@@ -569,6 +656,7 @@
         html += '</div></div>';
       }
     } else if (mode === 'listen') {
+      session.answer = w.c;
       var others = wordsInScope().filter(function (x) { return x.c !== w.c; });
       var similar = others.filter(function (x) { return x.f === w.f || x.i === w.i; });
       var picked = D.pick(similar, 2);
@@ -577,7 +665,8 @@
       html += '<div class="choice-group"><div class="choice-label">哪个是刚才读到的字？</div><div class="choice-list">';
       chars.forEach(function (c) { html += choiceHTML(c, 'single', 'text'); });
       html += '</div></div>';
-    } else {
+    } else if (mode === 'word') {
+      session.answer = w.w;
       // 干扰词都是题库里的真词，但不能含有当前汉字（否则也能组成词，会造成误判）
       var pool = wordsInScope().filter(function (x) {
         return x.w !== w.w && x.w.indexOf(w.c) === -1;
@@ -588,6 +677,19 @@
       var opts = D.shuffle([w.w].concat(words));
       html += '<div class="choice-group"><div class="choice-label">选出正确的组词</div><div class="choice-list">';
       opts.forEach(function (v) { html += choiceHTML(v, 'single', 'text small'); });
+      html += '</div></div>';
+    } else if (mode === 'confuse') {
+      session.answer = w.i;
+      // 5 个形近声母全出，比四选一更难，逼孩子真正分清方向
+      html += '<div class="choice-group"><div class="choice-label">听一听，这个字的声母是哪一个？</div><div class="choice-list five">';
+      D.shuffle(L.CONFUSABLE.letters.slice()).forEach(function (v) { html += choiceHTML(v, 'single'); });
+      html += '</div></div>';
+      html += '<div class="mnemonic-line">👆 选错了也没关系，答完会告诉你口诀</div>';
+    } else {
+      session.answer = w.s;
+      var options = D.shuffle([w.s].concat(L.wholeDistractors(w.s, 3)));
+      html += '<div class="choice-group"><div class="choice-label">选出对应的整体认读音节（不用拼哦）</div><div class="choice-list">';
+      options.forEach(function (v) { html += choiceHTML(v, 'single', 'syllable'); });
       html += '</div></div>';
     }
     $('choices').innerHTML = html;
@@ -621,9 +723,9 @@
     var a = $('slotInitial'), b = $('slotFinal');
     if (!a || !b) return;
     var si = session.selections.initial, sf = session.selections.final;
-    a.textContent = si || '?';
+    a.textContent = si ? nf(si) : '?';
     a.className = 'slot' + (si ? ' pop' : ' placeholder');
-    b.textContent = sf || '?';
+    b.textContent = sf ? nf(sf) : '?';
     b.className = 'slot' + (sf ? ' pop' : ' placeholder');
   }
 
@@ -643,16 +745,15 @@
   }
 
   function checkSingle(value, el) {
-    var w = session.current;
-    var right = state.settings.mode === 'listen' ? w.c : w.w;
     session.locked = true;
-    if (value === right) { el.classList.add('correct'); onCorrect(); return; }
+    if (value === session.answer) { el.classList.add('correct'); onCorrect(); return; }
     el.classList.add('wrongpick');
     onWrong();
   }
 
   function onCorrect() {
     var w = session.current;
+    var mode = state.settings.mode;
     session.answered = true;
     session.correct++;
     state.stars++;
@@ -669,18 +770,24 @@
     S.cheer();                       // 掌声 + 上行音
     confetti();
 
-    if (state.settings.mode === 'spell') {
-      $('slotInitial').textContent = w.i;
-      $('slotFinal').textContent = w.f;
+    if (mode === 'spell') {
+      $('slotInitial').textContent = nf(w.i);
+      $('slotFinal').textContent = nf(w.f);
       $('slotInitial').className = 'slot correct-text pop';
       $('slotFinal').className = 'slot correct-text pop';
-      var ap = $('answerPinyin');
-      if (ap) { ap.textContent = w.p + ' · ' + w.w; ap.style.color = '#17a06a'; }
+    }
+    var ap = $('answerPinyin');
+    if (ap) {
+      ap.textContent = nf(mode === 'spell' ? (w.p + ' · ' + w.w) : w.p);
+      ap.style.color = '#17a06a';
     }
     Array.prototype.forEach.call($('choices').querySelectorAll('.choice'), function (x) { x.classList.add('dim'); });
+    var extra = '';
+    if (mode === 'confuse') extra = '　' + L.CONFUSABLE.short[w.i];
+    if (mode === 'whole') extra = '　不用拼，整个记住！';
     $('feedback').className = 'feedback ok';
-    $('feedback').textContent = '🎉 答对啦！' + w.c + '，' + w.w + '　　' + w.p;
-    $('cheerSub').textContent = w.p + ' · ' + w.w;
+    $('feedback').textContent = '🎉 答对啦！' + w.c + '，' + w.w + '　　' + nf(w.p) + extra;
+    $('cheerSub').textContent = nf(w.p) + ' · ' + w.w;
     $('overlay').classList.remove('hidden');
     $('btnNext').classList.remove('hidden');
     $('progressFill').style.width = ((session.index + 1) / session.queue.length * 100) + '%';
@@ -692,6 +799,7 @@
 
   function onWrong() {
     var w = session.current;
+    var mode = state.settings.mode;
     state.combo = 0;
     var rec = state.records[w.c] || { try: 0, ok: 0 };
     rec.try++;
@@ -699,8 +807,13 @@
     if (state.wrongList.indexOf(w.c) === -1) state.wrongList.push(w.c);
     saveState();
     S.wrong();
+    var hint = '';
+    if (mode === 'confuse') hint = ' 口诀：' + L.CONFUSABLE.short[w.i];
+    else if (mode === 'whole') hint = ' 记住：整体认读音节不用拼';
+    // 三拼 / ü 规则 / 整体认读的讲解留到答错时给，答题时不泄题
+    else if (mode === 'spell' && w.tip) hint = ' 💡 ' + w.tip;
     $('feedback').className = 'feedback no';
-    $('feedback').textContent = '再想一想～ 点「🔊 再听一遍」听听读音吧！';
+    $('feedback').textContent = '再想一想～ 点「🔊 再听一遍」听听读音吧！' + hint;
     session.retryTimer = setTimeout(function () {
       speakCurrent();
       session.retryTimer = setTimeout(function () {
@@ -801,6 +914,14 @@
     if (b.dataset.action === 'all') applyGrades([1, 2, 3, 4, 5, 6]);
     else if (b.dataset.action === 'g1') applyGrades([1]);
     else toggleGrade(Number(b.dataset.grade));
+  });
+  $('wholeGrid').addEventListener('click', function (e) {
+    var b = e.target.closest('.whole-tile');
+    if (!b) return;
+    S.unlock(); S.tap();
+    speakText(b.dataset.say);
+    Array.prototype.forEach.call($('wholeGrid').children, function (x) { x.classList.remove('playing'); });
+    b.classList.add('playing');
   });
   $('modeGrid').addEventListener('click', function (e) {
     var b = e.target.closest('.mode-card');
@@ -953,6 +1074,7 @@
   /* ---------------- 启动 ---------------- */
   initEye();
   renderStats();
+  renderWholeTiles();
   syncSettingsUI();
   setInterval(eyeTick, 1000);
 })();

@@ -1,7 +1,18 @@
 /* ============================================================
  * 拼音汉字乐园 · 样式
- * 面向一年级孩子：大按钮、大字号、高对比、柔和配色、零外部字体
+ * 面向一年级孩子：大按钮、大字号、高对比、柔和配色
+ * 拼音用手写体：优先系统手写体（iPhone 的 Chalkboard SE、Windows 的
+ * Comic Sans MS），内嵌 OFL 授权的 Comic Neue 作跨平台兜底。
+ * 带调拼音先由 JS 做 Unicode 分解（ǎ → a + 组合符号），避免手写字体
+ * 缺少 ǎ / ǜ 等字形时回退成印刷体、一个词里混两种字体。
  * ============================================================ */
+@font-face {
+  font-family: 'PinyinHand';
+  src: url('../fonts/pinyin-hand.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   --mint: #22b8a6;
   --mint-deep: #148f82;
@@ -19,7 +30,8 @@
   --shadow: 0 10px 30px rgba(31, 88, 105, .12);
   --shadow-sm: 0 4px 14px rgba(31, 88, 105, .10);
   --hanzi-font: "KaiTi", "STKaiti", "Kaiti SC", "楷体", "Microsoft YaHei", sans-serif;
-  --pinyin-font: "Times New Roman", "Georgia", "Segoe UI", serif;
+  --pinyin-font: "Chalkboard SE", "Comic Sans MS", "Marker Felt",
+                 "Segoe Print", "Bradley Hand", "PinyinHand", cursive;
   --ui-font: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
   /* iPhone 安全区：刘海 / 灵动岛 / Home 指示条；桌面浏览器取 0 */
   --sa-t: env(safe-area-inset-top, 0px);
@@ -130,17 +142,67 @@ input, select, textarea { font-size: 16px; }
 .section-title { font-size: 17px; font-weight: 800; margin: 0 0 12px 4px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
 .section-title .hint { font-size: 13px; font-weight: 500; color: var(--ink-3); }
 
-.mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
+.mode-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
 .mode-card {
-  background: #fff; border: 3px solid transparent; border-radius: 24px; padding: 18px 14px;
+  background: #fff; border: 3px solid transparent; border-radius: 22px; padding: 14px 10px;
   text-align: center; cursor: pointer; box-shadow: var(--shadow-sm);
   transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 .mode-card:hover { transform: translateY(-4px); }
 .mode-card.selected { border-color: var(--mint); box-shadow: 0 10px 24px rgba(34,184,166,.22); background: #fbfffe; }
-.mode-card .m-emoji { font-size: 40px; display: block; }
-.mode-card .m-name { font-weight: 800; font-size: 18px; margin: 6px 0 4px; }
-.mode-card .m-desc { font-size: 13px; color: var(--ink-3); line-height: 1.5; }
+.mode-card.special { background: linear-gradient(165deg, #fffdf4, #fff5dd); border-color: #ffe7ae; }
+.mode-card.special.selected { border-color: #efb400; background: #fff9ea; box-shadow: 0 10px 24px rgba(233,169,0,.25); }
+.mode-card .m-emoji { font-size: 34px; display: block; }
+.mode-card .m-name { font-weight: 800; font-size: 16px; margin: 4px 0 3px; }
+.mode-card .m-desc { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+.mode-card .m-badge {
+  display: inline-block; margin-top: 6px; padding: 2px 9px; border-radius: 999px;
+  font-family: var(--pinyin-font); font-size: 13px; letter-spacing: 1px;
+  color: #9a6a00; background: #fff0c4;
+}
+
+/* ---------- 整体认读音节点读表 ---------- */
+.lesson-card { padding: 0; margin: 0 0 18px; overflow: hidden; }
+.lesson-card summary {
+  cursor: pointer; list-style: none; min-height: 52px; padding: 12px 18px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-weight: 800; font-size: 15px; color: var(--mint-deep);
+}
+.lesson-card summary::-webkit-details-marker { display: none; }
+.lesson-card summary::before { content: '▸'; font-size: 18px; color: var(--mint); }
+.lesson-card[open] summary::before { content: '▾'; }
+.lesson-card .sum-hint { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.lesson-note { padding: 0 18px 10px; font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.lesson-note b { color: #d08000; }
+.whole-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; padding: 0 18px 18px; }
+.whole-tile {
+  border: 2px solid #e8f1f4; background: #fbfffe; border-radius: 14px; padding: 8px 4px;
+  cursor: pointer; text-align: center; font-family: var(--ui-font);
+  transition: transform .15s ease, background .15s ease, border-color .15s ease;
+}
+.whole-tile:hover { transform: translateY(-2px); }
+.whole-tile.playing { background: var(--mint-soft); border-color: var(--mint); }
+.whole-tile .wt-py { display: block; font-family: var(--pinyin-font); font-size: 26px; line-height: 1.2; color: var(--mint-deep); }
+.whole-tile .wt-zi { display: block; font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+
+/* ---------- 专项练习：横幅、口诀、音节选项 ---------- */
+.lesson-banner {
+  max-width: 620px; margin: 4px auto 8px; padding: 9px 12px; border-radius: 14px;
+  text-align: center; font-size: 14px; font-weight: 800; line-height: 1.5;
+}
+.lesson-banner.confuse {
+  background: #fff3d6; color: #966800; font-family: var(--pinyin-font);
+  font-size: 17px; letter-spacing: .5px;
+}
+.lesson-banner.whole { background: var(--mint-soft); color: var(--mint-deep); }
+.lesson-banner b { color: #d08000; }
+.mnemonic-line {
+  text-align: center; margin-top: 10px; font-size: 12px; color: var(--ink-3);
+  font-family: var(--ui-font); letter-spacing: 0;
+}
+.choice.syllable { font-size: 30px; min-width: 96px; letter-spacing: 1px; }
+/* 易混声母 5 选 1：五个形近字母排成一行，不拆成 4+1 */
+.choice-list.five .choice { min-width: 76px; padding: 0 8px; }
 
 .unit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 26px; }
 .unit-chip {
@@ -457,7 +519,7 @@ body.rest-lock { overflow: hidden; }
   .segmented button { min-height: 44px; padding: 8px 11px; font-size: 13px; }
 
   /* --- 护眼进度条 --- */
-  .eye-strip { padding: 8px 10px; gap: 8px; border-radius: 14px; margin: 2px 0 12px; }
+  .eye-strip { padding: 8px 10px; gap: 8px; border-radius: 14px; margin: 2px 0 8px; }
   .eye-ic { font-size: 20px; }
   .eye-strip-top { font-size: 11px; margin-bottom: 4px; gap: 4px; }
   .eye-strip-top span:last-child { margin-left: auto; }
@@ -465,27 +527,47 @@ body.rest-lock { overflow: hidden; }
   .eye-badge { display: none; }
 
   /* --- 首页：压缩纵向空间 --- */
-  .hero { padding: 6px 2px 2px; }
-  .hero .mascot { font-size: 38px; margin-bottom: 0; }
+  .hero { padding: 4px 2px 2px; }
+  .hero .mascot { font-size: 24px; margin-bottom: 0; }
   .hero h1 { font-size: 29px; margin-bottom: 4px; letter-spacing: 1px; }
   .hero .sub { font-size: 12px; line-height: 1.5; }
-  .stat-row { gap: 6px; margin: 12px 0 14px; flex-wrap: nowrap; }
-  .stat { flex: 1; min-width: 0; padding: 9px 4px; gap: 5px; border-radius: 14px; justify-content: center; }
+  .stat-row { gap: 6px; margin: 6px 0 8px; flex-wrap: nowrap; }
+  .stat { flex: 1; min-width: 0; padding: 7px 4px; gap: 5px; border-radius: 14px; justify-content: center; }
   .stat .ic { font-size: 19px; }
   .stat b { font-size: 18px; }
   .stat small { font-size: 10px; white-space: nowrap; }
-  .section-title { font-size: 14px; margin: 0 0 8px 2px; flex-wrap: wrap; gap: 3px 7px; }
+  .section-title { font-size: 14px; margin: 0 0 5px 2px; flex-wrap: wrap; gap: 3px 7px; }
   .section-title .hint { font-size: 11px; }
 
-  /* 玩法改成一行三卡，比原来的三行列表省约 150px */
-  .mode-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-  .mode-card { padding: 10px 3px; border-radius: 16px; border-width: 2px; }
-  .mode-card .m-emoji { font-size: 28px; }
+  /* 玩法：前 3 张一行，2 张专项一行，共两行，仍是首屏可见 */
+  .mode-grid { grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 10px; }
+  .mode-card { grid-column: span 2; padding: 8px 2px; border-radius: 16px; border-width: 2px; }
+  .mode-card:nth-child(4), .mode-card:nth-child(5) { grid-column: span 3; padding: 5px 6px; }
+  .mode-card .m-emoji { font-size: 26px; }
+  .mode-card:nth-child(n+4) .m-emoji { font-size: 22px; }
   .mode-card .m-name { font-size: 13px; margin: 2px 0 0; white-space: nowrap; }
   .mode-card .m-desc { display: none; }
+  .mode-card .m-badge { font-size: 10px; padding: 1px 7px; margin-top: 1px; }
+
+  /* 整体认读音节点读表：折叠时只占一行，展开后 4 列 */
+  .lesson-card { margin-bottom: 8px; border-radius: 16px; }
+  .lesson-card summary { min-height: 48px; padding: 10px 12px; font-size: 13px; gap: 6px; }
+  .lesson-card .sum-hint { font-size: 11px; }
+  .lesson-note { padding: 0 12px 8px; font-size: 11px; }
+  .whole-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 0 12px 12px; }
+  .whole-tile { min-height: 52px; padding: 5px 2px; border-radius: 12px; }
+  .whole-tile .wt-py { font-size: 21px; }
+  .whole-tile .wt-zi { font-size: 10px; }
+
+  /* 专项练习横幅与音节选项 */
+  .lesson-banner { font-size: 12px; padding: 7px 8px; margin: 2px auto 6px; border-radius: 12px; }
+  .lesson-banner.confuse { font-size: 11px; letter-spacing: 0; white-space: nowrap; }
+  .mnemonic-line { font-size: 10px; margin-top: 6px; }
+  .choice.syllable { font-size: 22px; min-width: 74px; letter-spacing: 0; }
+  .choice-list.five .choice { min-width: 52px; padding: 0 3px; }
 
   /* 年级固定 3 列 2 行 */
-  .unit-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  .unit-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
   .unit-chip { min-height: 48px; padding: 8px 4px; font-size: 14px; border-radius: 14px; gap: 4px; }
   .unit-chip .u-emoji { font-size: 17px; }
   .grade-chip { min-height: 54px; gap: 1px; }
@@ -610,6 +692,11 @@ body.rest-lock { overflow: hidden; }
   .stat-row { margin: 8px 0 10px; }
   .stat { padding: 7px 3px; }
   .mode-grid, .unit-grid { margin-bottom: 10px; }
+  .mode-card:nth-child(n+4) { padding: 5px 4px; }
+  .mode-card .m-badge { display: none; }
+  .lesson-banner { padding: 5px 8px; }
+  .lesson-banner.confuse { font-size: 12px; }
+  .tip-line { max-width: 100%; }
   .progress-wrap { margin: 2px 0 6px; }
   .stage { padding: 10px 8px 12px; }
   .pinyin-grid { height: 72px; }
